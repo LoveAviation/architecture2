@@ -6,21 +6,29 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import ru.gb.android.workshop2.marketsample.R
 import ru.gb.android.workshop2.marketsample.databinding.FragmentProductListBinding
 import ru.gb.android.workshop2.presentation.list.product.adapter.ProductsAdapter
 
-class ProductListFragment : Fragment(), ProductListView {
+class ProductListFragment : Fragment(){
 
     private var _binding: FragmentProductListBinding? = null
     private val binding get() = _binding!!
 
     private val adapter = ProductsAdapter()
 
-    private val productListPresenter: ProductListPresenter by lazy {
-        FeatureServiceLocator.providePresenter()
+    private val factory: ProductVMFactory by lazy {
+        FeatureServiceLocator.provideProductVMFactory()
     }
+
+    private lateinit var viewModel : ProductVM
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -28,6 +36,7 @@ class ProductListFragment : Fragment(), ProductListView {
         savedInstanceState: Bundle?
     ): View {
         _binding = FragmentProductListBinding.inflate(inflater, container, false)
+        viewModel =  ViewModelProvider(this, factory)[ProductVM::class.java]
         return binding.root
     }
 
@@ -38,41 +47,57 @@ class ProductListFragment : Fragment(), ProductListView {
         binding.recyclerView.layoutManager = LinearLayoutManager(context)
 
         binding.swipeRefreshLayout.setOnRefreshListener {
-            productListPresenter.refresh()
+            viewModel.refresh()
         }
 
-        productListPresenter.onViewAttached(this)
-        productListPresenter.loadProduct()
+        viewModel.loadProduct()
+
+        viewModel.product.observe(viewLifecycleOwner){ result ->
+            if(result == null){
+                showProgress()
+                hideProducts()
+            }else{
+                hideProgress()
+                hidePullToRefresh()
+                showProducts(result)
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.error.collect{ isError ->
+                if(isError) showError()
+            }
+        }
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
-        productListPresenter.dispose()
+        viewModel.dispose()
         _binding = null
     }
 
-    override fun showProgress() {
+    private fun showProgress() {
         binding.progress.visibility = View.VISIBLE
     }
 
-    override fun hideProgress() {
+    private fun hideProgress() {
         binding.progress.visibility = View.GONE
     }
 
-    override fun hidePullToRefresh() {
+    private fun hidePullToRefresh() {
         binding.swipeRefreshLayout.isRefreshing = false
     }
 
-    override fun showProducts(productList: List<ProductVO>) {
+    private fun showProducts(productList: List<ProductVO>) {
         binding.recyclerView.visibility = View.VISIBLE
         adapter.submitList(productList)
     }
 
-    override fun hideProducts() {
+    private fun hideProducts() {
         binding.recyclerView.visibility = View.GONE
     }
 
-    override fun showError() {
+    private fun showError() {
         Toast.makeText(
             requireContext(),
             getString(R.string.error_wile_loading_data),

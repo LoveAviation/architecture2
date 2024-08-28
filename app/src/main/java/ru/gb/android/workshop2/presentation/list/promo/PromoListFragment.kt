@@ -6,20 +6,25 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import kotlinx.coroutines.launch
 import ru.gb.android.workshop2.marketsample.R
 import ru.gb.android.workshop2.marketsample.databinding.FragmentPromoListBinding
 import ru.gb.android.workshop2.presentation.list.promo.adapter.PromoAdapter
 
-class PromoListFragment : Fragment(), PromoListView {
+class PromoListFragment : Fragment(){
 
     private var _binding: FragmentPromoListBinding? = null
     private val binding get() = _binding!!
 
     private val adapter = PromoAdapter()
 
-    private val promoListPresenter: PromoListPresenter by lazy {
-        FeatureServiceLocator.providePresenter()
+    private lateinit var viewModel : PromoVM
+
+    private val factory: PromoVMFactory by lazy {
+        FeatureServiceLocator.providePromoVMFactory()
     }
 
     override fun onCreateView(
@@ -28,6 +33,7 @@ class PromoListFragment : Fragment(), PromoListView {
         savedInstanceState: Bundle?
     ): View {
         _binding = FragmentPromoListBinding.inflate(inflater, container, false)
+        viewModel = ViewModelProvider(this, factory)[PromoVM::class.java]
         return binding.root
     }
 
@@ -38,37 +44,51 @@ class PromoListFragment : Fragment(), PromoListView {
         binding.recyclerView.layoutManager = LinearLayoutManager(context)
 
         binding.swipeRefreshLayout.setOnRefreshListener {
-            promoListPresenter.refresh()
+            viewModel.refresh()
         }
 
-        promoListPresenter.onViewAttached(this)
-        promoListPresenter.loadPromos()
+        viewModel.loadPromos()
+        viewModel.promo.observe(viewLifecycleOwner){ result ->
+            if(result == null){
+                showProgress()
+                hidePromos()
+            }else{
+                hideProgress()
+                showPromos(result)
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.error.collect{ isError ->
+                if(isError) showError()
+            }
+        }
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
-        promoListPresenter.dispose()
+        viewModel.dispose()
         _binding = null
     }
 
-    override fun showProgress() {
+    private fun showProgress() {
         binding.progress.visibility = View.VISIBLE
     }
 
-    override fun hideProgress() {
+    private fun hideProgress() {
         binding.progress.visibility = View.GONE
     }
 
-    override fun showPromos(promoList: List<PromoVO>) {
+    private fun showPromos(promoList: List<PromoVO>) {
         binding.recyclerView.visibility = View.VISIBLE
         adapter.submitList(promoList)
     }
 
-    override fun hidePromos() {
+    private fun hidePromos() {
         binding.recyclerView.visibility = View.GONE
     }
 
-    override fun showError() {
+    private fun showError() {
         Toast.makeText(
             requireContext(),
             getString(R.string.error_wile_loading_data),
